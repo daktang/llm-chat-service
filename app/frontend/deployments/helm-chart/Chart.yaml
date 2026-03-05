@@ -1,0 +1,6 @@
+apiVersion: v2
+name: llm-chat-service
+description: LLM Chat Service - Chat with AI models via LiteLLM
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
