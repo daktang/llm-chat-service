@@ -18,7 +18,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CHART_DIR="${SCRIPT_DIR}/deployments/helm-chart"
+CHART_DIR="${SCRIPT_DIR}/deployments/helm"
 RELEASE_NAME="llm-chat-service"
 
 # .envrc 환경변수 기본값 체크
