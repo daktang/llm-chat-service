@@ -1,18 +1,24 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { useChat } from "@/context/ChatContext";
 import ModelSelector from "@/components/ModelSelector";
 import ChatMessage from "@/components/ChatMessage";
 import ChatInput from "@/components/ChatInput";
 import { Button } from "@/components/ui/button";
-import { Trash2, MessageSquare, Loader2 } from "lucide-react";
+import { Trash2, MessageSquare, Loader2, ChevronDown, ChevronUp, X } from "lucide-react";
 
 export default function ChatWindow() {
-  const { messages, isLoading, error, clearMessages } = useChat();
+  const { messages, isLoading, error, errorDetail, clearMessages, clearError } = useChat();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [showDetail, setShowDetail] = useState(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Reset detail toggle when error changes
+  useEffect(() => {
+    setShowDetail(false);
+  }, [error]);
 
   return (
     <div className="flex flex-col h-screen bg-[#0f0f0f]">
@@ -66,8 +72,44 @@ export default function ChatWindow() {
 
       {/* Error Banner */}
       {error && (
-        <div className="px-6 py-2 bg-red-900/30 border-t border-red-800 text-red-300 text-sm text-center">
-          {error}
+        <div className="border-t border-red-800 bg-red-900/30">
+          <div className="px-6 py-2 flex items-center gap-2">
+            <span className="text-red-400 text-sm font-medium flex-1">{error}</span>
+            <div className="flex items-center gap-1">
+              {errorDetail && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowDetail((prev) => !prev)}
+                  className="text-red-400 hover:text-red-300 hover:bg-red-900/40 h-7 px-2 text-xs"
+                >
+                  {showDetail ? (
+                    <>상세 접기 <ChevronUp className="h-3 w-3 ml-1" /></>
+                  ) : (
+                    <>상세 보기 <ChevronDown className="h-3 w-3 ml-1" /></>
+                  )}
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearError}
+                className="text-red-400 hover:text-red-300 hover:bg-red-900/40 h-7 w-7 p-0"
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
+          {showDetail && errorDetail && (
+            <div className="px-6 pb-3">
+              <pre className="text-xs text-red-300/80 bg-red-950/50 border border-red-800/50 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap font-mono">
+                {errorDetail}
+              </pre>
+              <p className="text-xs text-red-400/60 mt-2">
+                💡 브라우저 개발자 도구(F12) → Console 탭에서 더 상세한 요청/응답 로그를 확인할 수 있습니다.
+              </p>
+            </div>
+          )}
         </div>
       )}
 

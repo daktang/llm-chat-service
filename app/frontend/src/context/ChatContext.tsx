@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, type ReactNode } from "react";
-import { fetchModels, sendChatMessage, type Model, type ChatMessage } from "@/lib/api";
+import { fetchModels, sendChatMessage, ApiError, type Model, type ChatMessage } from "@/lib/api";
 
 interface ChatContextType {
   models: Model[];
@@ -8,13 +8,33 @@ interface ChatContextType {
   isLoading: boolean;
   isLoadingModels: boolean;
   error: string | null;
+  errorDetail: string | null;
   setSelectedModel: (model: string) => void;
   loadModels: () => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
   clearMessages: () => void;
+  clearError: () => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
+
+function extractErrorInfo(err: unknown): { message: string; detail: string | null } {
+  if (err instanceof ApiError) {
+    const detail = [
+      `[${err.errorType}] ${err.timestamp}`,
+      `${err.method} ${err.url}`,
+      err.status ? `Status: ${err.status} ${err.statusText}` : "Status: N/A (연결 실패)",
+      err.responseBody ? `Server Response: ${err.responseBody.substring(0, 500)}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    return { message: err.message, detail };
+  }
+  if (err instanceof Error) {
+    return { message: err.message, detail: null };
+  }
+  return { message: String(err), detail: null };
+}
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [models, setModels] = useState<Model[]>([]);
@@ -23,10 +43,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
+
+  const clearError = useCallback(() => {
+    setError(null);
+    setErrorDetail(null);
+  }, []);
 
   const loadModels = useCallback(async () => {
     setIsLoadingModels(true);
-    setError(null);
+    clearError();
     try {
       const modelList = await fetchModels();
       setModels(modelList);
@@ -34,11 +60,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setSelectedModel(modelList[0].id);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load models");
+      const { message, detail } = extractErrorInfo(err);
+      setError(message);
+      setErrorDetail(detail);
     } finally {
       setIsLoadingModels(false);
     }
-  }, [selectedModel]);
+  }, [selectedModel, clearError]);
 
   const sendMessageHandler = useCallback(
     async (content: string) => {
@@ -48,7 +76,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const updatedMessages = [...messages, userMessage];
       setMessages(updatedMessages);
       setIsLoading(true);
-      setError(null);
+      clearError();
 
       try {
         const response = await sendChatMessage(selectedModel, updatedMessages);
@@ -60,18 +88,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         };
         setMessages((prev) => [...prev, assistantMessage]);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to send message");
+        const { message, detail } = extractErrorInfo(err);
+        setError(message);
+        setErrorDetail(detail);
       } finally {
         setIsLoading(false);
       }
     },
-    [selectedModel, messages]
+    [selectedModel, messages, clearError]
   );
 
   const clearMessages = useCallback(() => {
     setMessages([]);
-    setError(null);
-  }, []);
+    clearError();
+  }, [clearError]);
 
   return (
     <ChatContext.Provider
@@ -82,10 +112,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         isLoading,
         isLoadingModels,
         error,
+        errorDetail,
         setSelectedModel,
         loadModels,
         sendMessage: sendMessageHandler,
         clearMessages,
+        clearError,
       }}
     >
       {children}
