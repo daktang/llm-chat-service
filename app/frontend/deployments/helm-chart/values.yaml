@@ -1,4 +1,9 @@
 # Default values for llm-chat-service
+# 실제 배포 시에는 .envrc의 환경변수를 --set 또는 -f 옵션으로 오버라이드하세요.
+# 예: helm install llm-chat ./deployments/helm-chart \
+#       --set service.host=$SERVICE_HOST \
+#       --set image.repository=$IMAGE_REPOSITORY \
+#       --set image.tag=$IMAGE_TAG
 
 replicaCount: 1
 
@@ -13,8 +18,27 @@ fullnameOverride: ""
 
 service:
   type: ClusterIP
-  port: 80
+  port: 8080
+  # 서비스 호스트 (Istio VirtualService에서 라우팅에 사용)
+  host: "llm-chat.internal.example.com"
 
+# Istio 설정
+istio:
+  enabled: true
+  # Gateway 설정
+  gateway:
+    # 기존 공유 게이트웨이를 사용하려면 existingGateway에 이름 지정
+    # 예: istio-system/my-shared-gateway
+    existingGateway: ""
+    # 새 Gateway 생성 시 사용할 이름
+    name: "llm-chat-gateway"
+    # Gateway가 리스닝할 포트
+    port: 80
+    # Gateway selector (istio ingressgateway label)
+    selector:
+      istio: ingressgateway
+
+# 기존 Ingress (Istio 사용 시 비활성화)
 ingress:
   enabled: false
   className: "nginx"

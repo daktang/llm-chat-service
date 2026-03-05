@@ -25,10 +25,10 @@ RUN pnpm run build
 # ---- Stage 2: Serve ----
 FROM nginx:1.25-alpine AS production
 
-# Copy custom nginx config
+# Copy custom nginx config (port 8080 fixed)
 COPY <<'EOF' /etc/nginx/conf.d/default.conf
 server {
-    listen 80;
+    listen 8080;
     server_name _;
     root /usr/share/nginx/html;
     index index.html;
@@ -50,6 +50,6 @@ EOF
 # Copy built assets from builder
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 8080
 
 CMD ["nginx", "-g", "daemon off;"]
