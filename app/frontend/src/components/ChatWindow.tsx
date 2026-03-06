@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from "react";
-import { useChat } from "@/context/ChatContext";
+import { useChat } from "@/hooks/useChat";
 import ModelSelector from "@/components/ModelSelector";
 import ChatMessage from "@/components/ChatMessage";
 import ChatInput from "@/components/ChatInput";

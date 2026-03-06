@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useChat } from "@/context/ChatContext";
+import { useChat } from "@/hooks/useChat";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { SendHorizontal } from "lucide-react";

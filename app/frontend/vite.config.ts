@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react-swc';
 import path from 'path';
 import { viteSourceLocator } from '@metagptx/vite-plugin-source-locator';
 import { atoms } from '@metagptx/web-sdk/plugins';
+import { gunzipSync } from 'zlib';
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
@@ -28,12 +29,16 @@ export default defineConfig(({ mode }) => ({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/llm/, ''),
         configure: (proxy) => {
+          // ── REQUEST 로그 ──
           proxy.on('proxyReq', (proxyReq, req) => {
+            // gzip 압축 응답 방지 → 서버가 plain text로 응답하도록
+            proxyReq.removeHeader('accept-encoding');
+
             const timestamp = new Date().toISOString();
             const bodyChunks: Buffer[] = [];
             req.on('data', (chunk: Buffer) => bodyChunks.push(chunk));
             req.on('end', () => {
-              const body = bodyChunks.length > 0 ? Buffer.concat(bodyChunks).toString() : '';
+              const body = bodyChunks.length > 0 ? Buffer.concat(bodyChunks).toString('utf-8') : '';
               console.log(`\n${'═'.repeat(60)}`);
               console.log(`📤 [REQUEST] ${timestamp}`);
               console.log(`${'─'.repeat(60)}`);
@@ -56,12 +61,28 @@ export default defineConfig(({ mode }) => ({
               console.log(`${'═'.repeat(60)}`);
             });
           });
+
+          // ── RESPONSE 로그 ──
           proxy.on('proxyRes', (proxyRes, req) => {
             const timestamp = new Date().toISOString();
             const chunks: Buffer[] = [];
             proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
             proxyRes.on('end', () => {
-              const responseBody = Buffer.concat(chunks).toString();
+              const rawBuffer = Buffer.concat(chunks);
+              let responseBody: string;
+
+              // gzip 응답인 경우 디코딩 시도
+              const encoding = proxyRes.headers['content-encoding'];
+              try {
+                if (encoding === 'gzip') {
+                  responseBody = gunzipSync(rawBuffer).toString('utf-8');
+                } else {
+                  responseBody = rawBuffer.toString('utf-8');
+                }
+              } catch {
+                responseBody = rawBuffer.toString('utf-8');
+              }
+
               console.log(`\n${'═'.repeat(60)}`);
               console.log(`📥 [RESPONSE] ${timestamp}`);
               console.log(`${'─'.repeat(60)}`);
@@ -70,7 +91,6 @@ export default defineConfig(({ mode }) => ({
               if (responseBody) {
                 try {
                   const parsed = JSON.parse(responseBody);
-                  // Truncate large responses (e.g., model list, long completions)
                   const str = JSON.stringify(parsed, null, 2);
                   console.log(`  Body   : ${str.substring(0, 2000)}${str.length > 2000 ? '\n  ... (truncated)' : ''}`);
                 } catch {
@@ -80,6 +100,8 @@ export default defineConfig(({ mode }) => ({
               console.log(`${'═'.repeat(60)}`);
             });
           });
+
+          // ── ERROR 로그 ──
           proxy.on('error', (err, req) => {
             const timestamp = new Date().toISOString();
             console.error(`\n${'═'.repeat(60)}`);
@@ -90,10 +112,6 @@ export default defineConfig(({ mode }) => ({
             console.error(`${'═'.repeat(60)}`);
           });
         },
-      },
-      '/api': {
-        target: `http://localhost:8000`,
-        changeOrigin: true,
       },
     },
     watch: { usePolling: true, interval: 600 },

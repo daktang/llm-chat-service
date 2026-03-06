@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useChat } from "@/context/ChatContext";
+import { useChat } from "@/hooks/useChat";
 import {
   Select,
   SelectContent,

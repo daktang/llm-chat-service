@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import React, { createContext, useState, useCallback, type ReactNode } from "react";
 import { fetchModels, sendChatMessage, ApiError, type Model, type ChatMessage } from "@/lib/api";
 
-interface ChatContextType {
+export interface ChatContextType {
   models: Model[];
   selectedModel: string;
   messages: ChatMessage[];
@@ -16,7 +16,7 @@ interface ChatContextType {
   clearError: () => void;
 }
 
-const ChatContext = createContext<ChatContextType | undefined>(undefined);
+export const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 function extractErrorInfo(err: unknown): { message: string; detail: string | null } {
   if (err instanceof ApiError) {
@@ -128,12 +128,4 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       {children}
     </ChatContext.Provider>
   );
-}
-
-export function useChat() {
-  const context = useContext(ChatContext);
-  if (!context) {
-    throw new Error("useChat must be used within a ChatProvider");
-  }
-  return context;
 }
