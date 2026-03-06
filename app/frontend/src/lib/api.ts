@@ -20,6 +20,12 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 // Chat completions는 더 긴 타임아웃: 120초
 const CHAT_TIMEOUT_MS = 120_000;
 
+// 재시도 설정
+const MAX_RETRIES = 2;
+const RETRY_BASE_DELAY_MS = 1_000; // 1초 → 2초 (지수 백오프)
+// 재시도 대상 HTTP 상태 코드
+const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
+
 // ── Type Definitions ──────────────────────────
 
 export interface Model {
@@ -112,8 +118,9 @@ export class ApiError extends Error {
   public readonly url: string;
   public readonly method: string;
   public readonly responseBody: string | null;
-  public readonly errorType: "NETWORK" | "HTTP" | "PARSE" | "TIMEOUT" | "UNKNOWN";
+  public readonly errorType: "NETWORK" | "HTTP" | "PARSE" | "TIMEOUT" | "SERVER_TIMEOUT" | "UNKNOWN";
   public readonly timestamp: string;
+  public readonly retryCount: number;
 
   constructor(params: {
     message: string;
@@ -122,7 +129,8 @@ export class ApiError extends Error {
     url: string;
     method: string;
     responseBody: string | null;
-    errorType: "NETWORK" | "HTTP" | "PARSE" | "TIMEOUT" | "UNKNOWN";
+    errorType: "NETWORK" | "HTTP" | "PARSE" | "TIMEOUT" | "SERVER_TIMEOUT" | "UNKNOWN";
+    retryCount?: number;
   }) {
     super(params.message);
     this.name = "ApiError";
@@ -133,6 +141,7 @@ export class ApiError extends Error {
     this.responseBody = params.responseBody;
     this.errorType = params.errorType;
     this.timestamp = new Date().toISOString();
+    this.retryCount = params.retryCount ?? 0;
   }
 
   /** Human-readable diagnostic summary */
@@ -145,6 +154,7 @@ export class ApiError extends Error {
       `Method    : ${this.method}`,
       `URL       : ${this.url}`,
       `Status    : ${this.status ?? "N/A"} ${this.statusText}`,
+      `Retries   : ${this.retryCount}/${MAX_RETRIES}`,
       `Message   : ${this.message}`,
     ];
     if (this.responseBody) {
@@ -157,8 +167,9 @@ export class ApiError extends Error {
 
 // ── Logging (Browser Console) ─────────────────
 
-function logRequest(method: string, url: string, body?: unknown) {
-  console.group(`📤 [API Request] ${method} ${url}`);
+function logRequest(method: string, url: string, body?: unknown, retryAttempt?: number) {
+  const retryLabel = retryAttempt ? ` [재시도 ${retryAttempt}/${MAX_RETRIES}]` : "";
+  console.group(`📤 [API Request]${retryLabel} ${method} ${url}`);
   console.log("Timestamp:", new Date().toISOString());
   console.log("URL:", url);
   console.log("Method:", method);
@@ -192,9 +203,15 @@ function logError(method: string, url: string, error: unknown, durationMs: numbe
   console.groupEnd();
 }
 
+function logRetry(method: string, url: string, attempt: number, reason: string, delayMs: number) {
+  console.warn(
+    `🔄 [API Retry] ${method} ${url} - 재시도 ${attempt}/${MAX_RETRIES} (${delayMs}ms 후) - 사유: ${reason}`
+  );
+}
+
 // ── Error Handlers ────────────────────────────
 
-function createTimeoutError(method: string, url: string, timeoutMs: number): ApiError {
+function createTimeoutError(method: string, url: string, timeoutMs: number, retryCount: number): ApiError {
   return new ApiError({
     message: `요청 타임아웃: ${timeoutMs / 1000}초 내에 LLM 서버(${url})로부터 응답을 받지 못했습니다. 서버 상태를 확인하거나 나중에 다시 시도하세요.`,
     status: null,
@@ -203,6 +220,37 @@ function createTimeoutError(method: string, url: string, timeoutMs: number): Api
     method,
     responseBody: null,
     errorType: "TIMEOUT",
+    retryCount,
+  });
+}
+
+function createServerTimeoutError(
+  method: string,
+  url: string,
+  responseBody: string | null,
+  retryCount: number,
+): ApiError {
+  // LiteLLM 서버의 408 에러 메시지에서 timeout 값 추출
+  let serverTimeout = "알 수 없음";
+  if (responseBody) {
+    const match = responseBody.match(/timeout value=([0-9.]+)/);
+    if (match) {
+      serverTimeout = `${match[1]}초`;
+    }
+  }
+
+  return new ApiError({
+    message: `LLM 서버 타임아웃 (408): 서버 측 timeout 설정이 너무 짧습니다 (현재: ${serverTimeout}). ` +
+      `${retryCount}회 재시도했으나 동일한 오류가 발생했습니다. ` +
+      `LiteLLM 관리자에게 request_timeout 또는 timeout 값을 늘려달라고 요청하세요. ` +
+      `(예: litellm --request_timeout 300)`,
+    status: 408,
+    statusText: "Request Timeout",
+    url,
+    method,
+    responseBody,
+    errorType: "SERVER_TIMEOUT",
+    retryCount,
   });
 }
 
@@ -211,10 +259,11 @@ async function handleFetchError(
   url: string,
   error: unknown,
   timeoutMs: number,
+  retryCount: number,
 ): Promise<never> {
   // AbortError (timeout)
   if (error instanceof DOMException && error.name === "AbortError") {
-    throw createTimeoutError(method, url, timeoutMs);
+    throw createTimeoutError(method, url, timeoutMs, retryCount);
   }
 
   // Network error (DNS, CORS, connection refused, etc.)
@@ -227,6 +276,7 @@ async function handleFetchError(
       method,
       responseBody: null,
       errorType: "NETWORK",
+      retryCount,
     });
     throw networkError;
   }
@@ -245,20 +295,27 @@ async function handleFetchError(
     method,
     responseBody: null,
     errorType: "UNKNOWN",
+    retryCount,
   });
   throw unknownError;
 }
 
-async function handleHttpError(
+async function buildHttpError(
   method: string,
   url: string,
   response: Response,
-): Promise<never> {
+  retryCount: number,
+): Promise<ApiError> {
   let responseBody: string | null = null;
   try {
     responseBody = await response.text();
   } catch {
     responseBody = "(응답 본문을 읽을 수 없음)";
+  }
+
+  // 408 Request Timeout - LiteLLM 서버 측 타임아웃
+  if (response.status === 408) {
+    return createServerTimeoutError(method, url, responseBody, retryCount);
   }
 
   let detail = "";
@@ -274,7 +331,7 @@ async function handleHttpError(
     detail = "예상치 못한 HTTP 오류입니다.";
   }
 
-  const httpError = new ApiError({
+  return new ApiError({
     message: `HTTP ${response.status} ${response.statusText}: ${detail}`,
     status: response.status,
     statusText: response.statusText,
@@ -282,11 +339,17 @@ async function handleHttpError(
     method,
     responseBody,
     errorType: "HTTP",
+    retryCount,
   });
-  throw httpError;
 }
 
-// ── Core Fetch Wrapper ────────────────────────
+// ── Utility ───────────────────────────────────
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ── Core Fetch Wrapper with Retry ─────────────
 
 async function apiFetch<T>(
   method: string,
@@ -298,60 +361,113 @@ async function apiFetch<T>(
 ): Promise<T> {
   const url = `${BASE_URL}${path}`;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const startTime = performance.now();
 
-  logRequest(method, url, options.body);
+  let lastError: ApiError | null = null;
 
-  // AbortController for timeout
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const startTime = performance.now();
+    const isRetry = attempt > 0;
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method,
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${API_KEY}`,
-      },
-      body: options.body ? JSON.stringify(options.body) : undefined,
-      signal: controller.signal,
-    });
-  } catch (error) {
+    if (isRetry) {
+      const delayMs = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1); // 1s, 2s
+      logRetry(method, url, attempt, lastError?.message ?? "unknown", delayMs);
+      await sleep(delayMs);
+    }
+
+    logRequest(method, url, options.body, isRetry ? attempt : undefined);
+
+    // AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method,
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${API_KEY}`,
+        },
+        body: options.body ? JSON.stringify(options.body) : undefined,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      clearTimeout(timeoutId);
+      const duration = Math.round(performance.now() - startTime);
+      logError(method, url, error, duration);
+
+      // 네트워크 에러는 재시도 가능
+      if (attempt < MAX_RETRIES && (error instanceof TypeError || (error instanceof DOMException && error.name === "AbortError"))) {
+        lastError = error instanceof DOMException
+          ? createTimeoutError(method, url, timeoutMs, attempt)
+          : new ApiError({
+              message: `네트워크 오류: ${error.message}`,
+              status: null,
+              statusText: "Network Error",
+              url,
+              method,
+              responseBody: null,
+              errorType: "NETWORK",
+              retryCount: attempt,
+            });
+        continue;
+      }
+
+      return handleFetchError(method, url, error, timeoutMs, attempt);
+    }
+
     clearTimeout(timeoutId);
     const duration = Math.round(performance.now() - startTime);
-    logError(method, url, error, duration);
-    return handleFetchError(method, url, error, timeoutMs);
+
+    // HTTP 에러 처리
+    if (!response.ok) {
+      const httpError = await buildHttpError(method, url, response, attempt);
+      logError(method, url, `HTTP ${response.status}`, duration);
+
+      // 재시도 가능한 상태 코드인 경우
+      if (attempt < MAX_RETRIES && RETRYABLE_STATUS_CODES.has(response.status)) {
+        lastError = httpError;
+        continue;
+      }
+
+      throw httpError;
+    }
+
+    // 성공 응답 파싱
+    let data: T;
+    try {
+      data = await response.json();
+    } catch (parseError) {
+      const parseApiError = new ApiError({
+        message: `응답 파싱 오류: LLM 서버에서 유효하지 않은 JSON 응답을 반환했습니다. ${parseError instanceof Error ? parseError.message : ""}`,
+        status: response.status,
+        statusText: response.statusText,
+        url,
+        method,
+        responseBody: null,
+        errorType: "PARSE",
+        retryCount: attempt,
+      });
+      logError(method, url, parseApiError, duration);
+      throw parseApiError;
+    }
+
+    logResponse(method, url, response.status, response.statusText, data, duration);
+    return data;
   }
 
-  clearTimeout(timeoutId);
-  const duration = Math.round(performance.now() - startTime);
-
-  if (!response.ok) {
-    logError(method, url, `HTTP ${response.status}`, duration);
-    return handleHttpError(method, url, response);
-  }
-
-  let data: T;
-  try {
-    data = await response.json();
-  } catch (parseError) {
-    const parseApiError = new ApiError({
-      message: `응답 파싱 오류: LLM 서버에서 유효하지 않은 JSON 응답을 반환했습니다. ${parseError instanceof Error ? parseError.message : ""}`,
-      status: response.status,
-      statusText: response.statusText,
-      url,
-      method,
-      responseBody: null,
-      errorType: "PARSE",
-    });
-    logError(method, url, parseApiError, duration);
-    throw parseApiError;
-  }
-
-  logResponse(method, url, response.status, response.statusText, data, duration);
-  return data;
+  // 모든 재시도 소진 후 마지막 에러 throw
+  throw lastError ?? new ApiError({
+    message: "모든 재시도가 실패했습니다.",
+    status: null,
+    statusText: "Retry Exhausted",
+    url,
+    method,
+    responseBody: null,
+    errorType: "UNKNOWN",
+    retryCount: MAX_RETRIES,
+  });
 }
 
 // ── API Functions ─────────────────────────────

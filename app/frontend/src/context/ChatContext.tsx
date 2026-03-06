@@ -20,15 +20,22 @@ export const ChatContext = createContext<ChatContextType | undefined>(undefined)
 
 function extractErrorInfo(err: unknown): { message: string; detail: string | null } {
   if (err instanceof ApiError) {
-    const statusLine = err.errorType === "TIMEOUT"
-      ? "Status: TIMEOUT (응답 시간 초과)"
-      : err.status
-        ? `Status: ${err.status} ${err.statusText}`
-        : "Status: N/A (연결 실패)";
+    let statusLine: string;
+    if (err.errorType === "TIMEOUT") {
+      statusLine = "Status: TIMEOUT (클라이언트 응답 시간 초과)";
+    } else if (err.errorType === "SERVER_TIMEOUT") {
+      statusLine = "Status: 408 (LLM 서버 측 타임아웃)";
+    } else if (err.status) {
+      statusLine = `Status: ${err.status} ${err.statusText}`;
+    } else {
+      statusLine = "Status: N/A (연결 실패)";
+    }
+
     const detail = [
       `[${err.errorType}] ${err.timestamp}`,
       `${err.method} ${err.url}`,
       statusLine,
+      `재시도 횟수: ${err.retryCount}`,
       err.responseBody ? `Server Response: ${err.responseBody.substring(0, 500)}` : null,
     ]
       .filter(Boolean)
