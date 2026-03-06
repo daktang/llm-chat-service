@@ -20,10 +20,15 @@ const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 function extractErrorInfo(err: unknown): { message: string; detail: string | null } {
   if (err instanceof ApiError) {
+    const statusLine = err.errorType === "TIMEOUT"
+      ? "Status: TIMEOUT (응답 시간 초과)"
+      : err.status
+        ? `Status: ${err.status} ${err.statusText}`
+        : "Status: N/A (연결 실패)";
     const detail = [
       `[${err.errorType}] ${err.timestamp}`,
       `${err.method} ${err.url}`,
-      err.status ? `Status: ${err.status} ${err.statusText}` : "Status: N/A (연결 실패)",
+      statusLine,
       err.responseBody ? `Server Response: ${err.responseBody.substring(0, 500)}` : null,
     ]
       .filter(Boolean)

@@ -109,7 +109,38 @@ pnpm run dev
 ```
 
 개발 서버는 `http://localhost:3000`에서 실행됩니다.
-`/api` 경로의 요청은 `http://localhost:8000`으로 프록시됩니다.
+
+#### API 프록시 & 서버 터미널 로그
+
+개발 환경에서는 모든 LLM API 요청이 **Vite 프록시**를 통해 라우팅됩니다:
+
+```
+브라우저 → /llm/v1/* → Vite Proxy → VITE_LITELLM_BASE_URL/v1/*
+```
+
+이를 통해 **서버 터미널(System IO)**에 모든 Request/Response 로그가 자동으로 출력됩니다:
+
+```
+════════════════════════════════════════════════════════════
+📤 [REQUEST] 2026-03-05T10:30:00.000Z
+────────────────────────────────────────────────────────────
+  Method : POST
+  Path   : /v1/chat/completions
+  Host   : openllm.net
+  Auth   : Bearer sk-xxxx...
+  Body   : { "model": "gpt-oss-120b", "messages": [...] }
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════════════════════════
+📥 [RESPONSE] 2026-03-05T10:30:05.000Z
+────────────────────────────────────────────────────────────
+  Status : 200 OK
+  Path   : /llm/v1/chat/completions
+  Body   : { "id": "chatcmpl-xxx", "choices": [...] }
+════════════════════════════════════════════════════════════
+```
+
+> **참고**: 프로덕션 빌드에서는 프록시 없이 `VITE_LITELLM_BASE_URL`로 직접 요청합니다.
 
 ### 빌드 및 검증
 
@@ -119,6 +150,59 @@ pnpm run lint
 
 # 프로덕션 빌드
 pnpm run build
+```
+
+---
+
+## 지원 API 엔드포인트
+
+OpenAI-compatible API 엔드포인트를 지원합니다:
+
+| 메서드 | 엔드포인트 | 설명 | 타임아웃 |
+|--------|-----------|------|---------|
+| `GET` | `/v1/models` | 사용 가능한 모델 목록 조회 | 60초 |
+| `GET` | `/v1/models/{model_id}` | 특정 모델 상세 정보 조회 | 60초 |
+| `POST` | `/v1/chat/completions` | 채팅 메시지 전송 및 AI 응답 | 120초 |
+| `POST` | `/v1/completions` | 텍스트 완성 (Text Completion) | 120초 |
+| `POST` | `/v1/embeddings` | 텍스트 벡터 임베딩 변환 | 60초 |
+| `GET` | `/v1/models` (healthCheck) | 서버 연결 상태 확인 | 10초 |
+
+### API 사용 예시 (코드)
+
+```typescript
+import {
+  fetchModels,
+  fetchModelDetail,
+  sendChatMessage,
+  sendCompletion,
+  createEmbedding,
+  healthCheck,
+} from "@/lib/api";
+
+// 모델 목록 조회
+const models = await fetchModels();
+
+// 모델 상세 정보
+const detail = await fetchModelDetail("gpt-oss-120b");
+
+// 채팅 (옵션 포함)
+const chatResponse = await sendChatMessage("gpt-oss-120b", [
+  { role: "system", content: "You are a helpful assistant." },
+  { role: "user", content: "Hello!" },
+], { temperature: 0.7, max_tokens: 1024 });
+
+// 텍스트 완성
+const completion = await sendCompletion("gpt-oss-120b", "Once upon a time", {
+  max_tokens: 256,
+  temperature: 0.9,
+});
+
+// 임베딩
+const embedding = await createEmbedding("text-embedding-model", "Hello world");
+
+// 서버 상태 확인
+const health = await healthCheck();
+console.log(health.ok ? "서버 정상" : `서버 오류: ${health.error}`);
 ```
 
 ---
