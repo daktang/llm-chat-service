@@ -10,7 +10,7 @@
 # ============================================
 
 # --- LiteLLM API Configuration (필수) ---
-# LiteLLM 프록시 서버 주소 (예: https://openllm.domain.net)
+# LiteLLM 프록시 서버 주소 (예: https://openllm.your-domain.net)
 export VITE_LITELLM_BASE_URL=""
 
 # LiteLLM API 인증 키
@@ -19,16 +19,3 @@ export VITE_LITELLM_API_KEY=""
 # --- Vite Dev Server ---
 # 로컬 개발 서버 포트 (기본: 3000)
 export VITE_PORT="3000"
-
-# --- Docker / Kubernetes Configuration ---
-# Docker 이미지 레포지토리
-export IMAGE_REPOSITORY=""
-
-# Docker 이미지 태그
-export IMAGE_TAG="latest"
-
-# K8s 네임스페이스
-export K8S_NAMESPACE="default"
-
-# Replica 수
-export REPLICA_COUNT="1"

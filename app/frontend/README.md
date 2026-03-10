@@ -20,38 +20,16 @@ LiteLLM API를 활용한 LLM 채팅 서비스입니다. React + Vite + shadcn/ui
 
 ## Quick Start
 
-### 로컬 개발
-
 ```bash
-# 1. 환경변수 설정 (필수 3개: VITE_LITELLM_BASE_URL, VITE_LITELLM_API_KEY, VITE_PORT)
+# 1. 환경변수 설정
 cp .envrc.sample .envrc
-vi .envrc
+vi .envrc          # VITE_LITELLM_BASE_URL, VITE_LITELLM_API_KEY 설정
 source .envrc
 
 # 2. 실행
 pnpm install
 pnpm run dev
 # → http://localhost:3000
-```
-
-### Kubernetes 배포
-
-```bash
-# 1. 환경변수 설정
-cp .envrc.sample .envrc
-vi .envrc
-source .envrc
-
-# 2. Docker 이미지 빌드 & Push
-./docker-build.sh
-docker push ${IMAGE_REPOSITORY}:${IMAGE_TAG}
-
-# 3. Helm 배포 (Deployment + Service만 생성)
-./deploy.sh install
-
-# 4. Gateway/VirtualService는 직접 작성하여 적용
-kubectl apply -f your-gateway.yaml -n ${K8S_NAMESPACE}
-kubectl apply -f your-virtualservice.yaml -n ${K8S_NAMESPACE}
 ```
 
 ---
@@ -63,10 +41,8 @@ kubectl apply -f your-virtualservice.yaml -n ${K8S_NAMESPACE}
 ├── .envrc                  # 환경변수 중앙 관리 (gitignore 대상)
 ├── .envrc.sample           # 환경변수 샘플
 ├── Dockerfile              # 내부망용 멀티스테이지 빌드 (nginx:8080)
-├── deploy.sh               # Helm 배포 스크립트
-├── docker-build.sh         # Docker 이미지 빌드 스크립트
 ├── deployments/
-│   └── helm/               # Helm Chart (Deployment + Service만)
+│   └── helm/               # Helm Chart (Deployment + Service)
 │       ├── Chart.yaml
 │       ├── values.yaml
 │       └── templates/
@@ -92,54 +68,33 @@ kubectl apply -f your-virtualservice.yaml -n ${K8S_NAMESPACE}
 
 **모든 설정은 `.envrc` 한 곳에서 관리합니다.** 기본값이 없으므로 설정하지 않으면 서버가 시작되지 않습니다.
 
-### 설정 방법
-
-```bash
-cp .envrc.sample .envrc
-vi .envrc          # 값 수정
-source .envrc      # 적용 (또는 direnv allow)
-```
-
 ### 환경변수 목록
 
-| 변수명 | 필수 | 설명 | 사용처 |
-|--------|------|------|--------|
-| `VITE_LITELLM_BASE_URL` | ✅ | LiteLLM API 엔드포인트 | Vite 프록시, 프로덕션 API 호출 |
-| `VITE_LITELLM_API_KEY` | ✅ | LiteLLM API 인증 키 | API 요청 Authorization 헤더 |
-| `VITE_PORT` | - | 로컬 개발 서버 포트 (기본: 3000) | Vite dev server |
-| `IMAGE_REPOSITORY` | ✅ (배포 시) | Docker 이미지 레포지토리 | docker-build.sh, deploy.sh |
-| `IMAGE_TAG` | - | Docker 이미지 태그 (기본: latest) | docker-build.sh, deploy.sh |
-| `K8S_NAMESPACE` | ✅ (배포 시) | Kubernetes 네임스페이스 | deploy.sh |
-| `REPLICA_COUNT` | - | Pod 복제 수 (기본: 1) | deploy.sh |
+| 변수명 | 필수 | 설명 |
+|--------|------|------|
+| `VITE_LITELLM_BASE_URL` | ✅ | LiteLLM API 엔드포인트 (예: `https://openllm.your-domain.net`) |
+| `VITE_LITELLM_API_KEY` | ✅ | LiteLLM API 인증 키 |
+| `VITE_PORT` | - | 로컬 개발 서버 포트 (기본: 3000) |
 
 ### 환경변수 흐름
 
 ```
 .envrc (한 곳에서 관리)
   ├── pnpm run dev     → vite.config.ts가 VITE_* 읽어서 프록시 설정 & 번들에 포함
-  ├── docker-build.sh  → --build-arg로 VITE_* 3개 전달 → Dockerfile에서 빌드 시 번들에 포함
-  └── deploy.sh        → --set으로 IMAGE_*, REPLICA_COUNT 전달 → Helm 배포
+  └── docker build     → --build-arg로 VITE_* 전달 → 빌드 시 번들에 포함
 ```
 
-> **참고**: `VITE_` 접두사 환경변수는 Vite 빌드 시점에 번들에 포함됩니다. 런타임에 변경하려면 Docker 이미지를 다시 빌드해야 합니다.
+> **중요**: `VITE_` 접두사 환경변수는 Vite 빌드 시점에 번들에 포함됩니다. 런타임에 변경할 수 없으며, 값을 바꾸려면 이미지를 다시 빌드해야 합니다.
 
 ---
 
 ## 로컬 개발
-
-### 사전 요구사항
-
-- Node.js 20+
-- pnpm
 
 ### Step 1: 환경변수 설정
 
 ```bash
 cp .envrc.sample .envrc
 vi .envrc
-# VITE_LITELLM_BASE_URL="https://openllm.domain.net"  ← 필수
-# VITE_LITELLM_API_KEY="sk-your-key"                   ← 필수
-# VITE_PORT="3000"                                      ← 선택
 source .envrc
 ```
 
@@ -151,58 +106,72 @@ pnpm run dev
 # → http://localhost:${VITE_PORT}
 ```
 
-⚠️ `VITE_LITELLM_BASE_URL` 또는 `VITE_LITELLM_API_KEY`가 설정되지 않으면 서버가 시작되지 않고 에러 메시지가 출력됩니다:
-
-```
-❌ 환경변수 VITE_LITELLM_BASE_URL가 설정되지 않았습니다.
-   .envrc 파일에서 VITE_LITELLM_BASE_URL를 설정한 후 source .envrc를 실행하세요.
-```
-
 ### API 프록시 & 로그
 
-개발 환경에서는 Vite 프록시를 통해 API 요청이 라우팅되며, 서버 터미널에 로그가 출력됩니다:
+개발 환경에서는 Vite 프록시를 통해 API 요청이 라우팅되며, 서버 터미널에 Request/Response 로그가 출력됩니다:
 
 ```
 브라우저 → /llm/v1/* → Vite Proxy → VITE_LITELLM_BASE_URL/v1/*
-```
-
-### 빌드
-
-```bash
-pnpm run lint
-pnpm run build    # dist/ 디렉토리에 생성
 ```
 
 ---
 
 ## Docker 이미지 빌드
 
-### 사전 요구사항
+### 빌드 명령어
 
-- Docker
-- 내부망 레지스트리 접근 가능 (domain.net)
+`VITE_*` 환경변수는 `--build-arg`로 전달합니다:
 
-### 빌드
+```bash
+docker build \
+  --build-arg VITE_LITELLM_BASE_URL="https://openllm.your-domain.net" \
+  --build-arg VITE_LITELLM_API_KEY="sk-your-key" \
+  -t your-registry/llm-chat-service:latest \
+  .
+```
+
+또는 `.envrc`를 source한 상태에서:
 
 ```bash
 source .envrc
-./docker-build.sh
+
+docker build \
+  --build-arg VITE_LITELLM_BASE_URL="${VITE_LITELLM_BASE_URL}" \
+  --build-arg VITE_LITELLM_API_KEY="${VITE_LITELLM_API_KEY}" \
+  -t your-registry/llm-chat-service:latest \
+  .
 ```
 
-`docker-build.sh`는 `.envrc`의 환경변수를 **그대로** `--build-arg`로 전달합니다:
+### 유의사항
 
-```
-VITE_LITELLM_BASE_URL → --build-arg VITE_LITELLM_BASE_URL
-VITE_LITELLM_API_KEY  → --build-arg VITE_LITELLM_API_KEY
-VITE_PORT             → --build-arg VITE_PORT
-```
+1. **`--build-arg`는 필수입니다**
+   - `VITE_LITELLM_BASE_URL`과 `VITE_LITELLM_API_KEY`를 전달하지 않으면 빌드가 실패합니다 (`process.exit(1)`)
+   - `VITE_PORT`는 선택 (기본값 3000, 빌드 결과에 영향 없음)
 
-⚠️ `VITE_LITELLM_BASE_URL`, `VITE_LITELLM_API_KEY`, `IMAGE_REPOSITORY`가 설정되지 않으면 빌드가 실패합니다.
+2. **값 변경 = 이미지 재빌드**
+   - `VITE_*` 환경변수는 Vite가 빌드 시점에 JavaScript 번들에 하드코딩합니다
+   - URL이나 API 키를 변경하려면 반드시 `docker build`를 다시 실행해야 합니다
+   - 런타임에 환경변수를 주입하는 방식(`docker run -e`)으로는 변경할 수 없습니다
+
+3. **API 키 보안**
+   - `--build-arg`로 전달한 값은 Docker 이미지 레이어에 남습니다
+   - `docker history`로 확인 가능하므로, 이미지를 외부에 공유할 때 주의하세요
+   - 필요 시 Docker BuildKit의 `--secret` 옵션을 사용할 수 있습니다:
+     ```bash
+     DOCKER_BUILDKIT=1 docker build \
+       --secret id=api_key,env=VITE_LITELLM_API_KEY \
+       ...
+     ```
+
+4. **`.npmrc` 파일**
+   - Dockerfile이 `.npmrc`를 `/root/.npmrc`로 복사합니다
+   - 내부 npm 레지스트리를 사용하는 경우 `.npmrc`에 설정이 필요합니다
+   - 사용하지 않는 경우 빈 파일이어도 무방합니다
 
 ### 로컬 테스트
 
 ```bash
-docker run -d --name llm-chat -p 8080:8080 ${IMAGE_REPOSITORY}:${IMAGE_TAG}
+docker run -d --name llm-chat -p 8080:8080 your-registry/llm-chat-service:latest
 open http://localhost:8080
 docker stop llm-chat && docker rm llm-chat
 ```
@@ -210,7 +179,7 @@ docker stop llm-chat && docker rm llm-chat
 ### Push
 
 ```bash
-docker push ${IMAGE_REPOSITORY}:${IMAGE_TAG}
+docker push your-registry/llm-chat-service:latest
 ```
 
 ---
@@ -219,84 +188,52 @@ docker push ${IMAGE_REPOSITORY}:${IMAGE_TAG}
 
 Helm Chart는 **Deployment + Service만** 생성합니다. Gateway/VirtualService는 사용자가 직접 관리합니다.
 
-### 사전 요구사항
-
-- Kubernetes 클러스터
-- Helm 3+
-- Docker 이미지가 레지스트리에 Push된 상태
-
-### Step 1: 환경변수 설정
-
-```bash
-cp .envrc.sample .envrc
-vi .envrc
-source .envrc
-```
-
-### Step 2: Docker 이미지 빌드 & Push
-
-```bash
-./docker-build.sh
-docker push ${IMAGE_REPOSITORY}:${IMAGE_TAG}
-```
-
-### Step 3: Helm 배포
+### 배포
 
 ```bash
 # 매니페스트 확인 (dry-run)
-./deploy.sh template
+helm template llm-chat-service ./deployments/helm \
+  --set image.repository=your-registry/llm-chat-service \
+  --set image.tag=latest
 
 # 설치
-./deploy.sh install
+helm install llm-chat-service ./deployments/helm \
+  --namespace your-namespace \
+  --create-namespace \
+  --set image.repository=your-registry/llm-chat-service \
+  --set image.tag=latest \
+  --set replicaCount=2
 
-# 확인
-kubectl get pods -n ${K8S_NAMESPACE}
-kubectl get svc -n ${K8S_NAMESPACE}
+# 업그레이드
+helm upgrade llm-chat-service ./deployments/helm \
+  --namespace your-namespace \
+  --set image.repository=your-registry/llm-chat-service \
+  --set image.tag=v1.1.0
+
+# 삭제
+helm uninstall llm-chat-service --namespace your-namespace
 ```
 
-### Step 4: Gateway/VirtualService 적용 (직접 관리)
+### Helm Values
+
+| 값 | 기본값 | 설명 |
+|----|--------|------|
+| `image.repository` | `""` | Docker 이미지 레포지토리 (필수) |
+| `image.tag` | `"latest"` | Docker 이미지 태그 |
+| `image.pullPolicy` | `IfNotPresent` | 이미지 Pull 정책 |
+| `replicaCount` | `1` | Pod 복제 수 |
+| `service.type` | `ClusterIP` | Service 타입 |
+| `service.port` | `8080` | Service 포트 |
+| `resources.limits.cpu` | `200m` | CPU 제한 |
+| `resources.limits.memory` | `256Mi` | 메모리 제한 |
+
+### Gateway/VirtualService
+
+Helm Chart에 포함되어 있지 않습니다. 환경에 맞게 직접 작성하여 적용하세요:
 
 ```bash
-# 사용자가 직접 작성한 GW/VS 적용
-kubectl apply -f your-gateway.yaml -n ${K8S_NAMESPACE}
-kubectl apply -f your-virtualservice.yaml -n ${K8S_NAMESPACE}
-```
-
-### Step 5: 접속 확인
-
-```bash
-# Port Forwarding (테스트용)
-kubectl port-forward svc/llm-chat-service 8080:8080 -n ${K8S_NAMESPACE}
-open http://localhost:8080
-
-# 또는 Istio IngressGateway를 통해 접속
-curl http://your-service-host
-```
-
-### 업데이트 배포
-
-```bash
-# .envrc에서 IMAGE_TAG 변경 후
-source .envrc
-./docker-build.sh
-docker push ${IMAGE_REPOSITORY}:${IMAGE_TAG}
-./deploy.sh upgrade
-kubectl rollout status deployment/llm-chat-service -n ${K8S_NAMESPACE}
-```
-
-### 삭제
-
-```bash
-./deploy.sh uninstall
-```
-
-### deploy.sh 명령어
-
-```bash
-./deploy.sh install     # 최초 설치
-./deploy.sh upgrade     # 업그레이드
-./deploy.sh template    # 매니페스트 확인 (dry-run)
-./deploy.sh uninstall   # 삭제
+kubectl apply -f your-gateway.yaml -n your-namespace
+kubectl apply -f your-virtualservice.yaml -n your-namespace
 ```
 
 ---
@@ -341,30 +278,30 @@ kubectl rollout status deployment/llm-chat-service -n ${K8S_NAMESPACE}
 
 → `.envrc`에서 필수 환경변수를 설정하고 `source .envrc` 실행
 
-### 408 Request Timeout
+### Docker 빌드 실패
 
 ```
-LLM 서버 타임아웃 (408): 서버 측 timeout 설정이 너무 짧습니다 (현재: 1.0초)
+❌ 환경변수 VITE_LITELLM_BASE_URL가 설정되지 않았습니다.
 ```
+
+→ `--build-arg`로 환경변수를 전달했는지 확인:
+```bash
+docker build \
+  --build-arg VITE_LITELLM_BASE_URL="https://..." \
+  --build-arg VITE_LITELLM_API_KEY="sk-..." \
+  -t ... .
+```
+
+### 408 Request Timeout
 
 → LiteLLM 서버의 `request_timeout` 설정을 늘려야 합니다:
 ```bash
 litellm --request_timeout 300 --timeout 300
 ```
 
-→ 프론트엔드는 자동으로 최대 2회 재시도합니다.
+### API 응답이 HTML로 옴
 
-### URL 변경하고 싶을 때
-
-`.envrc`에서 `VITE_LITELLM_BASE_URL`만 변경하면 됩니다:
-
-```bash
-# .envrc
-export VITE_LITELLM_BASE_URL="https://openllm.domain.net"
-```
-
-- **로컬 개발**: `source .envrc` 후 `pnpm run dev` 재시작
-- **K8s 배포**: `source .envrc` 후 `./docker-build.sh` → `docker push` → `./deploy.sh upgrade`
+→ `VITE_LITELLM_BASE_URL`이 실제 LiteLLM 서버 주소가 맞는지 확인하세요. "Coming Soon" 같은 HTML이 오면 URL이 잘못된 것입니다.
 
 ---
 
