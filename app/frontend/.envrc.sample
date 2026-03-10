@@ -4,34 +4,31 @@
 # 이 파일을 .envrc로 복사한 뒤 환경에 맞게 값을 수정하세요.
 #   cp .envrc.sample .envrc
 #   direnv allow  (또는 source .envrc)
+#
+# ⚠️  VITE_LITELLM_BASE_URL, VITE_LITELLM_API_KEY는 필수입니다.
+#     설정하지 않으면 서버가 시작되지 않습니다.
 # ============================================
 
-# --- Service Configuration ---
-# 서비스가 바인딩될 호스트 (Istio Gateway/VirtualService에서 사용)
-export SERVICE_HOST="your-service-host.example.com"
-
-# 서비스 포트 (컨테이너 및 K8s Service 포트, 항상 8080 고정)
-export SERVICE_PORT="8080"
-
-# --- LiteLLM API Configuration ---
-# LiteLLM 프록시 서버 주소
-export VITE_LITELLM_BASE_URL="https://your-litellm-endpoint"
+# --- LiteLLM API Configuration (필수) ---
+# LiteLLM 프록시 서버 주소 (예: https://openllm.domain.net)
+export VITE_LITELLM_BASE_URL=""
 
 # LiteLLM API 인증 키
 export VITE_LITELLM_API_KEY=""
 
-# --- Kubernetes / Helm Configuration ---
+# --- Vite Dev Server ---
+# 로컬 개발 서버 포트 (기본: 3000)
+export VITE_PORT="3000"
+
+# --- Docker / Kubernetes Configuration ---
 # Docker 이미지 레포지토리
-export IMAGE_REPOSITORY="your-registry/llm-chat-service"
+export IMAGE_REPOSITORY=""
 
 # Docker 이미지 태그
 export IMAGE_TAG="latest"
 
 # K8s 네임스페이스
 export K8S_NAMESPACE="default"
-
-# Istio Gateway 이름 (이미 존재하는 공유 게이트웨이가 있다면 해당 이름 사용)
-export ISTIO_GATEWAY_NAME="llm-chat-gateway"
 
 # Replica 수
 export REPLICA_COUNT="1"

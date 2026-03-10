@@ -5,15 +5,28 @@
 // 이를 통해 서버 터미널에 Request/Response 로그가 출력됩니다.
 //
 // 프록시 경로: /llm/v1/* → VITE_LITELLM_BASE_URL/v1/*
+//
+// ⚠️ 기본값 없음. .envrc에서 설정 필수.
 // ============================================
 
-const API_KEY = import.meta.env.VITE_LITELLM_API_KEY || "";
+function requireEnv(key: string): string {
+  const value = import.meta.env[key];
+  if (!value) {
+    throw new Error(
+      `❌ 환경변수 ${key}가 설정되지 않았습니다.\n` +
+      `.envrc 파일에서 ${key}를 설정한 후 source .envrc를 실행하세요.`
+    );
+  }
+  return value;
+}
+
+const API_KEY = requireEnv("VITE_LITELLM_API_KEY");
 
 // 개발 환경에서는 Vite 프록시를 통해 요청 (서버 터미널 로그 출력)
 // 프로덕션 환경에서는 직접 LiteLLM 서버로 요청
 const BASE_URL = import.meta.env.DEV
   ? "/llm"
-  : (import.meta.env.VITE_LITELLM_BASE_URL || "https://openllm.net");
+  : requireEnv("VITE_LITELLM_BASE_URL");
 
 // 기본 타임아웃: 60초 (LLM 응답은 오래 걸릴 수 있음)
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -230,7 +243,6 @@ function createServerTimeoutError(
   responseBody: string | null,
   retryCount: number,
 ): ApiError {
-  // LiteLLM 서버의 408 에러 메시지에서 timeout 값 추출
   let serverTimeout = "알 수 없음";
   if (responseBody) {
     const match = responseBody.match(/timeout value=([0-9.]+)/);
@@ -261,12 +273,10 @@ async function handleFetchError(
   timeoutMs: number,
   retryCount: number,
 ): Promise<never> {
-  // AbortError (timeout)
   if (error instanceof DOMException && error.name === "AbortError") {
     throw createTimeoutError(method, url, timeoutMs, retryCount);
   }
 
-  // Network error (DNS, CORS, connection refused, etc.)
   if (error instanceof TypeError) {
     const networkError = new ApiError({
       message: `네트워크 오류: LLM 서버에 연결할 수 없습니다. 원인: ${error.message}. 서버 주소, 네트워크 연결, CORS 설정을 확인하세요.`,
@@ -281,12 +291,10 @@ async function handleFetchError(
     throw networkError;
   }
 
-  // Already an ApiError, re-throw
   if (error instanceof ApiError) {
     throw error;
   }
 
-  // Unknown error
   const unknownError = new ApiError({
     message: `알 수 없는 오류: ${error instanceof Error ? error.message : String(error)}`,
     status: null,
@@ -313,7 +321,6 @@ async function buildHttpError(
     responseBody = "(응답 본문을 읽을 수 없음)";
   }
 
-  // 408 Request Timeout - LiteLLM 서버 측 타임아웃
   if (response.status === 408) {
     return createServerTimeoutError(method, url, responseBody, retryCount);
   }
@@ -322,7 +329,7 @@ async function buildHttpError(
   if (response.status === 401 || response.status === 403) {
     detail = "API 키가 올바르지 않거나 권한이 없습니다. VITE_LITELLM_API_KEY를 확인하세요.";
   } else if (response.status === 404) {
-    detail = "요청한 엔드포인트를 찾을 수 없습니다. LLM 서버 URL을 확인하세요.";
+    detail = "요청한 엔드포인트를 찾을 수 없습니다. VITE_LITELLM_BASE_URL을 확인하세요.";
   } else if (response.status === 429) {
     detail = "요청 제한(Rate Limit)에 도달했습니다. 잠시 후 다시 시도하세요.";
   } else if (response.status >= 500) {
@@ -369,14 +376,13 @@ async function apiFetch<T>(
     const isRetry = attempt > 0;
 
     if (isRetry) {
-      const delayMs = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1); // 1s, 2s
+      const delayMs = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
       logRetry(method, url, attempt, lastError?.message ?? "unknown", delayMs);
       await sleep(delayMs);
     }
 
     logRequest(method, url, options.body, isRetry ? attempt : undefined);
 
-    // AbortController for timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -397,7 +403,6 @@ async function apiFetch<T>(
       const duration = Math.round(performance.now() - startTime);
       logError(method, url, error, duration);
 
-      // 네트워크 에러는 재시도 가능
       if (attempt < MAX_RETRIES && (error instanceof TypeError || (error instanceof DOMException && error.name === "AbortError"))) {
         lastError = error instanceof DOMException
           ? createTimeoutError(method, url, timeoutMs, attempt)
@@ -420,12 +425,10 @@ async function apiFetch<T>(
     clearTimeout(timeoutId);
     const duration = Math.round(performance.now() - startTime);
 
-    // HTTP 에러 처리
     if (!response.ok) {
       const httpError = await buildHttpError(method, url, response, attempt);
       logError(method, url, `HTTP ${response.status}`, duration);
 
-      // 재시도 가능한 상태 코드인 경우
       if (attempt < MAX_RETRIES && RETRYABLE_STATUS_CODES.has(response.status)) {
         lastError = httpError;
         continue;
@@ -434,7 +437,6 @@ async function apiFetch<T>(
       throw httpError;
     }
 
-    // 성공 응답 파싱
     let data: T;
     try {
       data = await response.json();
@@ -457,7 +459,6 @@ async function apiFetch<T>(
     return data;
   }
 
-  // 모든 재시도 소진 후 마지막 에러 throw
   throw lastError ?? new ApiError({
     message: "모든 재시도가 실패했습니다.",
     status: null,
@@ -521,7 +522,6 @@ export async function sendChatMessage(
 /**
  * POST /v1/completions
  * 텍스트 완성 (Text Completion) 요청을 보냅니다.
- * 프롬프트를 기반으로 텍스트를 생성합니다.
  */
 export async function sendCompletion(
   model: string,
@@ -549,7 +549,6 @@ export async function sendCompletion(
 /**
  * POST /v1/embeddings
  * 텍스트를 벡터 임베딩으로 변환합니다.
- * 유사도 검색, 클러스터링 등에 활용할 수 있습니다.
  */
 export async function createEmbedding(
   model: string,
@@ -563,8 +562,6 @@ export async function createEmbedding(
 
 /**
  * 서버 연결 상태를 확인합니다.
- * GET /v1/models를 호출하여 서버가 응답하는지 확인합니다.
- * 짧은 타임아웃(10초)을 사용합니다.
  */
 export async function healthCheck(): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
   const startTime = performance.now();

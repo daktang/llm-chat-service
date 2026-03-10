@@ -3,16 +3,13 @@
 # LLM Chat Service - Deployment Script
 # ============================================
 # .envrc의 환경변수를 기반으로 Helm 배포를 수행합니다.
+# Gateway/VirtualService는 사용자가 직접 관리합니다.
 #
 # 사용법:
 #   source .envrc
 #   ./deploy.sh [install|upgrade|template|uninstall]
 #
-# 예시:
-#   source .envrc && ./deploy.sh install
-#   source .envrc && ./deploy.sh upgrade
-#   source .envrc && ./deploy.sh template   # dry-run (매니페스트 확인용)
-#   source .envrc && ./deploy.sh uninstall
+# ⚠️ 필수 환경변수: IMAGE_REPOSITORY, K8S_NAMESPACE
 # ============================================
 
 set -euo pipefail
@@ -21,26 +18,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHART_DIR="${SCRIPT_DIR}/deployments/helm"
 RELEASE_NAME="llm-chat-service"
 
-# .envrc 환경변수 기본값 체크
-: "${SERVICE_HOST:?ERROR: SERVICE_HOST is not set. Run 'source .envrc' first.}"
-: "${SERVICE_PORT:=8080}"
-: "${VITE_LITELLM_BASE_URL:=https://openllm.net}"
-: "${VITE_LITELLM_API_KEY:=}"
-: "${IMAGE_REPOSITORY:=llm-chat-service}"
+# 필수 환경변수 검증 (기본값 없음)
+: "${IMAGE_REPOSITORY:?ERROR: IMAGE_REPOSITORY is not set. Run 'source .envrc' first.}"
+: "${K8S_NAMESPACE:?ERROR: K8S_NAMESPACE is not set. Run 'source .envrc' first.}"
 : "${IMAGE_TAG:=latest}"
-: "${K8S_NAMESPACE:=default}"
-: "${ISTIO_GATEWAY_NAME:=llm-chat-gateway}"
 : "${REPLICA_COUNT:=1}"
 
 HELM_SET_ARGS=(
-  --set "service.host=${SERVICE_HOST}"
-  --set "service.port=${SERVICE_PORT}"
   --set "image.repository=${IMAGE_REPOSITORY}"
   --set "image.tag=${IMAGE_TAG}"
   --set "replicaCount=${REPLICA_COUNT}"
-  --set "istio.gateway.name=${ISTIO_GATEWAY_NAME}"
-  --set "env.VITE_LITELLM_BASE_URL=${VITE_LITELLM_BASE_URL}"
-  --set "env.VITE_LITELLM_API_KEY=${VITE_LITELLM_API_KEY}"
 )
 
 ACTION="${1:-install}"
@@ -50,10 +37,8 @@ echo " LLM Chat Service Deployment"
 echo "============================================"
 echo " Action    : ${ACTION}"
 echo " Namespace : ${K8S_NAMESPACE}"
-echo " Host      : ${SERVICE_HOST}"
-echo " Port      : ${SERVICE_PORT}"
 echo " Image     : ${IMAGE_REPOSITORY}:${IMAGE_TAG}"
-echo " Gateway   : ${ISTIO_GATEWAY_NAME}"
+echo " Replicas  : ${REPLICA_COUNT}"
 echo "============================================"
 
 case "${ACTION}" in
